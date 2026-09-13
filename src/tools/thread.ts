@@ -63,7 +63,7 @@ export function createThreadTool(args: {
             text: `created thread "${params.name}" (id: ${thread.id}) and dispatched a fresh session with the seed message`,
           },
         ],
-        details: { threadId: thread.id, parentChannelId: channel.id },
+        details: { threadId: thread.id, parentChannelId: thread.parentId ?? channel.id },
         terminate: true,
       };
     },
@@ -104,14 +104,26 @@ async function startThread(args: {
   name: string;
 }): Promise<AnyThreadChannel> {
   const { channel, parentMessageId, name } = args;
-  if (!("threads" in channel)) {
+  const targetChannel = channel.isThread() ? channel.parent : channel;
+  if (
+    !targetChannel ||
+    !targetChannel.isTextBased() ||
+    targetChannel.isThread() ||
+    targetChannel.isDMBased() ||
+    !("threads" in targetChannel)
+  ) {
     throw new Error(
       channel.isThread()
-        ? "cannot create a thread inside a thread"
+        ? "parent channel doesn't support thread creation"
         : "this channel type doesn't support thread creation",
     );
   }
   if (parentMessageId) {
+    if (channel.isThread()) {
+      throw new Error(
+        "cannot create a thread on a message inside an existing thread; omit parent_message_id to create at channel root",
+      );
+    }
     const parent = await channel.messages.fetch(parentMessageId).catch((error) => {
       console.error(`[thread] fetch parent ${parentMessageId} failed:`, error);
       return null;
@@ -121,5 +133,5 @@ async function startThread(args: {
     }
     return parent.startThread({ name, autoArchiveDuration: threadAutoArchiveMinutes });
   }
-  return channel.threads.create({ name, autoArchiveDuration: threadAutoArchiveMinutes });
+  return targetChannel.threads.create({ name, autoArchiveDuration: threadAutoArchiveMinutes });
 }
